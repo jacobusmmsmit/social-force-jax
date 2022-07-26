@@ -28,11 +28,13 @@ def VPrime(distance, strength, shape):
     return -V(distance, strength, shape) / shape
 
 
+@jax.jit
 def pedestrian_repulsion(xi, xj, strength, shape):
     Delta_x = xj - xi
-    distance = jnp.linalg.norm(xj - xi)
+    distance = jnp.clip(jnp.linalg.norm(xj - xi), 0.1, jnp.inf)
     v = VPrime(distance, strength, shape) / distance
-    return v * Delta_x
+    return jnp.where(jnp.alltrue(Delta_x == 0), x=jnp.zeros(2), y=v * Delta_x)
+    # return lax.cond(jnp.alltrue(Delta_x == 0), lambda: v * Delta_x, lambda: jnp.zeros(2))
 
 
 def two_groups_datum(key, N, D=5, V=2):
@@ -162,8 +164,6 @@ if __name__ == "__main__":
     bottom_wall = jnp.array([-100, -height, 100, -height])
     walls = jnp.row_stack((top_wall, bottom_wall))
 
-    pairwise_total_wall_repulsion(x0[:, 0:2], walls, wall_strength, wall_shape)
-
     args = (
         pedestrian_strength,
         pedestrian_shape,
@@ -208,8 +208,8 @@ if __name__ == "__main__":
         ax.scatter(datat[:, 0], datat[:, 1])
         ax.quiver(datat[:, 0], datat[:, 1], datat[:, 2], datat[:, 3])
 
-    # ani = FuncAnimation(fig, animate, frames=nsaves, interval=10, repeat=False)
-    # ani.save("plots/animation.gif", dpi=300, writer=PillowWriter(fps=60))
+    ani = FuncAnimation(fig, animate, frames=nsaves, interval=10, repeat=False)
+    ani.save("plots/animation.gif", dpi=300, writer=PillowWriter(fps=60))
 
     resolution = 1.0
     width_grid = jnp.arange(-width, width, resolution) + resolution / 2
@@ -264,8 +264,9 @@ if __name__ == "__main__":
         return loss
 
     jax.grad(compute_loss)(params, true_data)
+    jax.grad(compute_loss)(jnp.array([2.1, 1.0]), true_data)
 
-    for _ in range(1000):
-        grads = jax.grad(compute_loss)(params, true_data)
-        updates, opt_state = optimizer.update(grads, opt_state)
-        params = optax.apply_updates(params, updates)
+    # for _ in range(1000):
+    #     grads = jax.grad(compute_loss)(params, true_data)
+    #     updates, opt_state = optimizer.update(grads, opt_state)
+    #     params = optax.apply_updates(params, updates)
