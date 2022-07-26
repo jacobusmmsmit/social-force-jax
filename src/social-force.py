@@ -31,7 +31,7 @@ def pedestrian_repulsion(xi, xj, strength, shape):
     return v * Delta_x
 
 
-def two_groups_datum(N, D=5, V=2):
+def two_groups_datum(key, N, D=5, V=2):
     A = N // 2
     B = N - A
     x1 = V * (2 * random.uniform(key, (A, 1)) - 1) - D
@@ -67,8 +67,47 @@ def pairwise_total_pedestrian_repulsion(xs, strength, shape):
     )
 
 
+def closest_point_to_segment(point, segment_start, segment_end):
+    segment = segment_end - segment_start
+    t0 = jnp.clip(
+        (jnp.dot((point - segment_start), segment)) / jnp.dot(segment, segment), 0, 1
+    )
+    return segment_start + t0 * segment
+
+
+def closest_point_to_vsegment(point, vsegment):
+    return closest_point_to_segment(point, vsegment[0:2], vsegment[2:4])
+
+
+def get_closest_wall(xi, walls):
+    closest_points = vmap(closest_point_to_vsegment, (None, 0))(xi, walls)
+    distances = vmap(jnp.linalg.norm)(closest_points)
+    return closest_points[jnp.argmin(distances), :]
+
+
+def total_wall_repulsion(xi, walls, strength, shape):
+    xs = vmap(closest_point_to_vsegment, (None, 0))(xi, walls)
+    forces = vmap(
+        pedestrian_repulsion,
+        (None, 0, None, None),
+    )(xi, xs, strength, shape)
+    return jnp.sum(forces, 0, where=jnp.invert(jnp.isnan(forces)))
+
+
+def pairwise_total_wall_repulsion(xs, walls, strength, shape):
+    return vmap(total_wall_repulsion, (0, None, None, None))(xs, walls, strength, shape)
+
+
 def step_social_force(t, y, args):
-    strength, shape, relaxation_time, desired_velocities = args
+    (
+        pedestrian_strength,
+        pedestrian_shape,
+        wall_strength,
+        wall_shape,
+        relaxation_time,
+        desired_velocities,
+        walls,
+    ) = args
 
     ### Relaxation to desired velocity
     current_velocities = y[:, 2:4]
@@ -77,22 +116,45 @@ def step_social_force(t, y, args):
     )
 
     ### Agent repulsion
-    repulsions = pairwise_total_pedestrian_repulsion(y[:, 0:2], strength, shape)
+    pedestrian_repulsions = pairwise_total_pedestrian_repulsion(
+        y[:, 0:2], pedestrian_strength, pedestrian_shape
+    )
+
+    ### Wall repulsion (pairwise meaning every pedestrian with every wall)
+    wall_repulsions = pairwise_total_wall_repulsion(
+        y[:, 0:2], walls, wall_strength, wall_shape
+    )
 
     ### Derivative of position equals velocity
     dxdy = y[:, 2:4]
-    dvdy = accelerations + repulsions
+    dvdy = accelerations + pedestrian_repulsions + wall_repulsions
     return jnp.column_stack((dxdy, dvdy))
 
 
-N = 50
-x0 = two_groups_datum(N, 5, 2)
-my_strength = 2.1
-my_shape = 1.0
+N = 40
+x0 = two_groups_datum(key, N, 5, 2)
+pedestrian_strength = 2.1
+pedestrian_shape = 1.0
+wall_strength = 10.0
+wall_shape = 2.5
 relaxation_time = 0.5
 desired_velocities = x0[:, 2:4]
+top_wall = jnp.array([-100, 3, 100, 3])
+bottom_wall = jnp.array([-100, -3, 100, -3])
+walls = jnp.row_stack((top_wall, bottom_wall))
 
-args = (my_strength, my_shape, relaxation_time, desired_velocities)
+pairwise_total_wall_repulsion(x0[:, 0:2], walls, wall_strength, wall_shape)
+
+
+args = (
+    pedestrian_strength,
+    pedestrian_shape,
+    wall_strength,
+    wall_shape,
+    relaxation_time,
+    desired_velocities,
+    walls,
+)
 
 step_social_force(0.0, x0, args)
 
@@ -121,9 +183,11 @@ fig, ax = plt.subplots(1, 1)
 
 def animate(i):
     ax.clear()
+    for wall in walls:
+        ax.plot(wall[0], wall[1], wall[2], wall[3], color="black")
     datat = sol.ys[i]
     ax.set_xlim([-10, 10])
-    ax.set_ylim([-5, 5])
+    ax.set_ylim([-4, 4])
     ax.scatter(datat[:, 0], datat[:, 1])
     ax.quiver(datat[:, 0], datat[:, 1], datat[:, 2], datat[:, 3])
 
