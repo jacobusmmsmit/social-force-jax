@@ -5,22 +5,7 @@ from jax import random, lax
 from jax import vmap
 from jax.config import config
 
-
-def V(distance, strength, shape):
-    return strength * jnp.exp(-distance / shape)
-
-
-def VPrime(distance, strength, shape):
-    return -V(distance, strength, shape) / shape
-
-
-@jax.jit
-def pedestrian_repulsion(xi, xj, strength, shape):
-    Delta_x = xj - xi
-    distance = jnp.clip(jnp.linalg.norm(xj - xi), 0.1, jnp.inf)
-    v = VPrime(distance, strength, shape) / distance
-    return jnp.where(jnp.alltrue(Delta_x == 0), x=jnp.zeros(2), y=v * Delta_x)
-    # return lax.cond(jnp.alltrue(Delta_x == 0), lambda: v * Delta_x, lambda: jnp.zeros(2))
+# from utils import vectorized_cond
 
 
 def two_groups_datum(key, N, D=5, V=2):
@@ -45,11 +30,59 @@ def relax_to_desired(current_velocity, desired_velocity, relaxation_time):
 vrelax_to_desired = vmap(relax_to_desired, (0, 0, None))
 
 
+def V(distance, strength, shape):
+    return strength * jnp.exp(-distance / shape)
+
+
+def VPrime(distance, strength, shape):
+    return -V(distance, strength, shape) / shape
+
+
+@jax.jit
+def pedestrian_repulsion(xi, xj, strength, shape):
+    Delta_x = xj - xi
+    # jnp.clip(d, 0.1, 10.0)
+    distance = jnp.linalg.norm(Delta_x)
+    # distance = jnp.power(jnp.power(Delta_x[0], 2) + jnp.power(Delta_x[1], 2), 1 / 2)
+    # distance = 1.0
+    v = VPrime(distance, strength, shape) / (distance + 0.1)
+    # return lax.cond(
+    #     jnp.alltrue(Delta_x == 0), lambda x: v * x, lambda x: jnp.zeros(2), Delta_x
+    # )
+    return Delta_x * v
+    # return (distance, strength, shape)
+
+
+# def total_pedestrian_repulsion(xi, xs, strength, shape):
+#     forces = vmap(
+#         pedestrian_repulsion,
+#         (None, 0, None, None),
+#     )(xi, xs, strength, shape)
+#     return jnp.sum(forces, 0, where=jnp.invert(jnp.isnan(forces)))
+
+
+def select_different(point, points, x=None, y=None, size=None, fill_value=None):
+    return points[
+        jnp.where(
+            ~vmap(jnp.array_equal, (0, None))(points, point),
+            x=x,
+            y=y,
+            size=size,
+            fill_value=fill_value,
+        )
+    ]
+
+
 def total_pedestrian_repulsion(xi, xs, strength, shape):
+    xs_without_xi = select_different(
+        xi,
+        xs,
+        size=len(xs) - 1,
+    )
     forces = vmap(
         pedestrian_repulsion,
         (None, 0, None, None),
-    )(xi, xs, strength, shape)
+    )(xi, xs_without_xi, strength, shape)
     return jnp.sum(forces, 0, where=jnp.invert(jnp.isnan(forces)))
 
 
@@ -77,7 +110,16 @@ def get_closest_wall(xi, walls):
     return closest_points[jnp.argmin(distances), :]
 
 
+def in_segment(pt, seg, epsilon=1e-6):
+    a, b = pt - seg[0:2], pt - seg[2:4]
+    cp = jnp.cross(a, b)
+    dp = jnp.dot(a, b)
+    return abs(cp) <= epsilon and dp > 0 and jnp.linalg.norm(a, b) < dp
+
+
 def total_wall_repulsion(xi, walls, strength, shape):
+    # doesn't work because dynamic sized walls
+    # walls = walls[jnp.where(~vmap(in_segment, (None, 0))(xi, walls), size=len(walls))]
     xs = vmap(closest_point_to_vsegment, (None, 0))(xi, walls)
     forces = vmap(
         pedestrian_repulsion,

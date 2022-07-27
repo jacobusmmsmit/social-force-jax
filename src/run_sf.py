@@ -140,10 +140,16 @@ if __name__ == "__main__":
         loss = jnp.mean(optax.l2_loss(y_pred, y))
         return loss
 
-    jax.grad(compute_loss)(params, true_data)
+    # jax.grad(compute_loss)(params, true_data)
     jax.grad(compute_loss)(jnp.array([2.1, 1.0]), true_data)
 
-    # for _ in range(1000):
-    #     grads = jax.grad(compute_loss)(params, true_data)
-    #     updates, opt_state = optimizer.update(grads, opt_state)
-    #     params = optax.apply_updates(params, updates)
+    # Train:
+    for _ in range(200):
+        grads = jax.grad(compute_loss)(params, true_data)
+        updates, opt_state = optimizer.update(grads, opt_state)
+        params = optax.apply_updates(params, updates)
+        # Printing the loss is very inefficient, speed up the training by removing this line
+        print(f"Parameters: {params}, Loss: {compute_loss(params, true_data)}")
+
+    # Final parameters:
+    print(f"Final parameters, {params}")
