@@ -122,7 +122,7 @@ if __name__ == "__main__":
     # np.savetxt(f"data/reshaped_density.csv", reshaped_density, delimiter=",")
 
     @jax.jit
-    def predict(pedestrian_strength, pedestrian_shape):
+    def predict(pedestrian_strength, pedestrian_shape, wall_strength, wall_shape):
         new_args = (
             pedestrian_strength,
             pedestrian_shape,
@@ -149,25 +149,29 @@ if __name__ == "__main__":
 
     @jax.jit
     def compute_loss(params, y):
-        pedestrian_strength, pedestrian_shape = params
-        y_pred = predict(pedestrian_strength, pedestrian_shape)
+        pedestrian_strength, pedestrian_shape, wall_strength, wall_shape = params
+        y_pred = predict(
+            pedestrian_strength, pedestrian_shape, wall_strength, wall_shape
+        )
         loss = jnp.mean(optax.l2_loss(y_pred, y))
         return loss
 
     ### Point-estimate Parameter Calibration with ADAM
     learning_rate = 0.3
     optimizer = optax.adam(learning_rate)
-    params = jnp.array([1.0, 0.5])  # Initialise parameters at arbitrary values
+    params = jnp.array(
+        [1.0, 0.5, 0.5, 0.5]
+    )  # Initialise parameters at arbitrary values
     opt_state = optimizer.init(params)
 
     # Train:
-    for _ in range(250):
+    for _ in range(500):
         grads = jax.grad(compute_loss)(params, true_data)
         updates, opt_state = optimizer.update(grads, opt_state)
         params = optax.apply_updates(params, updates)
         # Printing the loss is very inefficient, speed up the training by removing this line
         # print(f"Parameters: {params}, Loss: {compute_loss(params, true_data)}")
-        print(f"Parameters: {params}")
+        print(f"Parameters: {params}, Grads: {grads}")
 
     # Final parameters:
     print(f"Final parameters, {params}")
@@ -186,14 +190,22 @@ if __name__ == "__main__":
             "sigma",
             dist.Uniform(pedestrian_shape / uFactor, pedestrian_shape * uFactor),
         )
+        U0 = numpyro.sample(
+            "U0",
+            dist.Uniform(wall_strength / uFactor, wall_strength * uFactor),
+        )
+        r = numpyro.sample(
+            "r",
+            dist.Uniform(wall_shape / uFactor, wall_shape * uFactor),
+        )
 
-        predicted = predict(V0, sigma)
+        predicted = predict(V0, sigma, U0, r)
 
         numpyro.sample("obs", dist.Normal(predicted, sigma_hyper), obs=data)
 
     ### NUTS ###
     # Set random seed for reproducibility.
-    nsamples = 5000
+    nsamples = 2000
     rng_key = random.PRNGKey(0)
     nuts = MCMC(
         NUTS(fitSF, target_accept_prob=0.65, max_tree_depth=10),
@@ -203,25 +215,20 @@ if __name__ == "__main__":
     nuts.run(rng_key, true_data)  # run sampler.
     nuts_samples = nuts.get_samples()  ## collect samplers.
 
-    fig, axs = plt.subplots(3, 2)
-    # Trace Plots
-    xs = jnp.arange(nsamples)
-    sns.lineplot(xs, nuts_samples["V0"], ax=axs[0][0])
-    axs[0][0].set_ylabel("V0")
-    sns.lineplot(xs, nuts_samples["sigma"], ax=axs[1][0])
-    axs[1][0].set_ylabel("sigma")
-    sns.lineplot(xs, nuts_samples["sigma_hyper"], ax=axs[2][0])
-    axs[2][0].set_ylabel("sigma_hyper")
+    def plot_chain(samples):
+        fig, axs = plt.subplots(len(samples), 2)
+        xs = jnp.arange(nsamples)
+        for i, variable in enumerate(samples):
+            row = axs[i]
+            print(row)
+            sns.lineplot(xs, samples[variable], ax=row[0])
+            sns.kdeplot(samples[variable], ax=row[1])
+            row[0].set_ylabel(variable)
 
-    # Density Plots
-    sns.kdeplot(nuts_samples["V0"], ax=axs[0][1])
-    sns.kdeplot(nuts_samples["sigma"], ax=axs[1][1])
-    sns.kdeplot(nuts_samples["sigma_hyper"], ax=axs[2][1])
+        axs[0][0].set_title("Trace Plots")
+        axs[0][1].set_title("Density Plots")
+        plt.subplots_adjust(hspace=0.5, wspace=0.4)
+        plt.suptitle("Trace and Density Plots for NUTS")
+        plt.savefig("plots/samples.png")
 
-    axs[0][0].set_title("Trace Plots")
-    axs[0][1].set_title("Density Plots")
-    # for i, ax in enumerate(axs.ravel()):
-    #     ax.set_title("Plot #{}".format(i))
-    plt.subplots_adjust(hspace=0.5, wspace=0.4)
-    plt.suptitle("Trace and Density Plots for NUTS")
-    plt.savefig("plots/samples.png")
+    plot_chain(nuts_samples)
