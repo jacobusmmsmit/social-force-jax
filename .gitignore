@@ -1,3 +1,5 @@
 /.venv
+/.vscode
 *.pyc
 src/__pycache__
+/data
