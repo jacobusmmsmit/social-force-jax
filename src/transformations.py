@@ -1,15 +1,39 @@
 import jax
 import jax.numpy as jnp
 from jax import vmap
+import matplotlib.pyplot as plt
+from functools import partial
+
+@partial(jax.jit, static_argnums=(0,))
+def stationary_kernel(f, x, y):
+    return f(x - y)
 
 
-def total_density(gridposition, agentpositions, shape=jnp.diag(jnp.ones(2))):
+@jax.jit
+def gaussian_kernel(x, y, shape=jnp.diag(jnp.ones(2))):
+    return jax.scipy.stats.multivariate_normal.pdf(x, y, shape)
+
+
+@jax.jit
+def _tricube(x):
+    return (70 / 81) * jnp.power(1 - jnp.power(jnp.abs(x), 3), 3)
+
+
+@jax.jit
+def tricube(x):
+    conditions = [jnp.abs(x) > 1, jnp.abs(x) <= 1]
+    return jnp.piecewise(x, conditions, [jnp.zeros_like, _tricube])
+
+
+@partial(jax.jit, static_argnums=(0,))
+def total_density(kernel, gridposition, agentpositions):
     return jnp.sum(
-        vmap(jax.scipy.stats.multivariate_normal.pdf, (None, 0, None))(
-            gridposition, agentpositions, shape
-        )
+        vmap(stationary_kernel, (None, None, 0))(kernel, gridposition, agentpositions)
     )
 
 
-def grid_density(gridpositions, xs):
-    return vmap(vmap(total_density, (0, None)), (0, None))(gridpositions, xs)
+@partial(jax.jit, static_argnums=(0,))
+def grid_density(kernel, gridpositions, xs):
+    return vmap(vmap(total_density, (None, 0, None)), (None, 0, None))(
+        kernel, gridpositions, xs
+    )

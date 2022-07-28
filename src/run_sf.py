@@ -104,15 +104,16 @@ if __name__ == "__main__":
 
     # Plot a heatmap of the initial conditions (broken, need to transpose)
     # xs = sol.ys[0][:, 0:2]
-    # a = transformations.grid_density(gridpositions, xs)
+    # a = transformations.grid_density(transformations.tricube, gridpositions, xs)
     # plt.clf()
     # plt.imshow(jnp.transpose(a), cmap="hot", interpolation="nearest")
     # ax.scatter(xs[:, 0], xs[:, 1])
     # ax.quiver(xs[:, 0], xs[:, 1], xs[:, 2], xs[:, 3])
     # plt.savefig("plots/heatmap.png")
-
-    true_data = vmap(transformations.grid_density, (None, 0))(
-        gridpositions, sol.ys[:, :, 0:2]
+    # tricube_grid_density = lambda x, y: transformations.grid_density(transformations.tricube, x, y)
+    # tricube_grid_density(gridpositions, sol.ys[0, :, 0:2])
+    true_data = vmap(transformations.grid_density, (None, None, 0))(
+        transformations.tricube, gridpositions, sol.ys[:, :, 0:2]
     )
 
     ### Save solution to csv
@@ -143,8 +144,8 @@ if __name__ == "__main__":
             saveat=saveat,
             stepsize_controller=stepsize_controller,
         )
-        return vmap(transformations.grid_density, (None, 0))(
-            gridpositions, sol.ys[:, :, 0:2]
+        return vmap(transformations.grid_density, (None, None, 0))(
+            transformations.tricube, gridpositions, sol.ys[:, :, 0:2]
         )
 
     @jax.jit
