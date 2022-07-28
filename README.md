@@ -1,5 +1,5 @@
-# social-force-diffrax
-An implementation of a simple Social Force model in Diffrax as well as a differentiable density-based optimisation of the parameters.
+# social-force-jax
+An implementation of a simple Social Force model in JAX + Diffrax as well as a differentiable density-based optimisation of the parameters with Optax or numpyro.
 
 To run the code in this repo, install the poetry package manager, navigate to the folder, and run `poetry install`. This will install all dependencies.
 
