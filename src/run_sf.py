@@ -7,13 +7,18 @@ import numpyro
 import numpyro.distributions as dist
 import seaborn as sns
 
-from diffrax import (
-    diffeqsolve,
-    Tsit5,
-    ODETerm,
-    SaveAt,
-    PIDController,
-)
+import warnings
+
+with warnings.catch_warnings():
+    warnings.filterwarnings("ignore",category=DeprecationWarning)
+    from diffrax import (
+        diffeqsolve,
+        Tsit5,
+        ODETerm,
+        SaveAt,
+        PIDController,
+    )
+
 from jax import random, lax
 from jax import vmap
 from jax.config import config
@@ -61,7 +66,7 @@ if __name__ == "__main__":
     term = ODETerm(sf.step)
     solver = Tsit5()
     tspan = (0.0, 10.0)
-    nsaves = 10
+    nsaves = 120
     saveat = SaveAt(ts=jnp.linspace(tspan[0], tspan[1], nsaves))
     stepsize_controller = PIDController(rtol=1e-5, atol=1e-5)
 
@@ -94,33 +99,31 @@ if __name__ == "__main__":
     ani.save("plots/animation.gif", dpi=300, writer=PillowWriter(fps=60))
 
     ### Set up density calculations
-    resolution = 0.5
+    resolution = 0.125
     width_grid = jnp.arange(-width, width, resolution) + resolution / 2
     height_grid = jnp.arange(-height, height, resolution) + resolution / 2
     xgrid, ygrid = jnp.meshgrid(width_grid, height_grid)
     gridpositions = jnp.dstack(jnp.meshgrid(width_grid, height_grid)).reshape(
-        len(width_grid), len(height_grid), 2
+        len(height_grid), len(width_grid), 2
     )
+
+    kernel = lambda x: transformations.tricube(x, shape=1.5)
 
     # Plot a heatmap of the initial conditions (broken, need to transpose)
     # xs = sol.ys[0][:, 0:2]
     # a = transformations.grid_density(transformations.tricube, gridpositions, xs)
     # plt.clf()
     # plt.imshow(jnp.transpose(a), cmap="hot", interpolation="nearest")
-    # ax.scatter(xs[:, 0], xs[:, 1])
-    # ax.quiver(xs[:, 0], xs[:, 1], xs[:, 2], xs[:, 3])
-    # plt.savefig("plots/heatmap.png")
-    # tricube_grid_density = lambda x, y: transformations.grid_density(transformations.tricube, x, y)
-    # tricube_grid_density(gridpositions, sol.ys[0, :, 0:2])
+
     true_data = vmap(transformations.grid_density, (None, None, 0))(
-        transformations.tricube, gridpositions, sol.ys[:, :, 0:2]
+        kernel, gridpositions, sol.ys[:, :, 0:2]
     )
 
     ### Save solution to csv
-    # sol_numpy = np.asarray(true_data)
-    # print(f"True dimensions: {np.shape(sol_numpy)}")
-    # reshaped_density = sol_numpy.reshape(sol_numpy.shape[0], -1)
-    # np.savetxt(f"data/reshaped_density.csv", reshaped_density, delimiter=",")
+    sol_numpy = np.asarray(true_data)
+    print(f"True dimensions: {np.shape(sol_numpy)}")
+    reshaped_density = sol_numpy.reshape(sol_numpy.shape[0], -1)
+    np.savetxt(f"data/reshaped_density.csv", reshaped_density, delimiter=",")
 
     @jax.jit
     def predict(pedestrian_strength, pedestrian_shape, wall_strength, wall_shape):
@@ -145,7 +148,7 @@ if __name__ == "__main__":
             stepsize_controller=stepsize_controller,
         )
         return vmap(transformations.grid_density, (None, None, 0))(
-            transformations.tricube, gridpositions, sol.ys[:, :, 0:2]
+            kernel, gridpositions, sol.ys[:, :, 0:2]
         )
 
     @jax.jit
@@ -166,7 +169,7 @@ if __name__ == "__main__":
     opt_state = optimizer.init(params)
 
     # Train:
-    for _ in range(500):
+    for _ in range(1000):
         grads = jax.grad(compute_loss)(params, true_data)
         updates, opt_state = optimizer.update(grads, opt_state)
         params = optax.apply_updates(params, updates)
@@ -206,12 +209,12 @@ if __name__ == "__main__":
 
     ### NUTS ###
     # Set random seed for reproducibility.
-    nsamples = 2000
+    nsamples = 200
     rng_key = random.PRNGKey(0)
     nuts = MCMC(
         NUTS(fitSF, target_accept_prob=0.65, max_tree_depth=10),
         num_samples=nsamples,
-        num_warmup=500,
+        num_warmup=50,
     )
     nuts.run(rng_key, true_data)  # run sampler.
     nuts_samples = nuts.get_samples()  ## collect samplers.

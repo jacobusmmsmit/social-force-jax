@@ -21,14 +21,10 @@ def _tricube(x):
 
 
 @jax.jit
-def tricube(x):
-    conditions = [jnp.abs(x) > 1, jnp.abs(x) <= 1]
-    return jnp.piecewise(x, conditions, [jnp.zeros_like, _tricube])
-
-
-@jax.jit
-def tricube_2d(x, y):
-    return tricube(x) * tricube(y)
+def tricube(x, shape=1):
+    t = x / shape
+    conditions = [jnp.abs(t) > 1, jnp.abs(t) <= 1]
+    return jnp.piecewise(t, conditions, [jnp.zeros_like, _tricube])
 
 
 @partial(jax.jit, static_argnums=(0,))
