@@ -50,7 +50,9 @@ if __name__ == "__main__":
     # Walls
     top_wall = jnp.array([-100, height, 100, height])
     bottom_wall = jnp.array([-100, -height, 100, -height])
-    walls = jnp.row_stack((top_wall, bottom_wall))
+    middle_top_wall = jnp.array([0, height, 0, (3/4)*height])
+    middle_bottom_wall = jnp.array([0, -height, 0, -(3/4)*height])
+    walls = jnp.row_stack((top_wall, bottom_wall, middle_top_wall, middle_bottom_wall))
 
     args = (
         pedestrian_strength,
@@ -65,7 +67,7 @@ if __name__ == "__main__":
     ### Set-up and solve model
     term = ODETerm(sf.step)
     solver = Tsit5()
-    tspan = (0.0, 10.0)
+    tspan = (0.0, 50.0)
     nsaves = 120
     saveat = SaveAt(ts=jnp.linspace(tspan[0], tspan[1], nsaves))
     stepsize_controller = PIDController(rtol=1e-5, atol=1e-5)
@@ -88,7 +90,7 @@ if __name__ == "__main__":
     def animate(i):
         ax.clear()
         for wall in walls:
-            ax.plot(wall[0], wall[1], wall[2], wall[3], color="black")
+            ax.plot((wall[0], wall[2]), (wall[1], wall[3]), color="black")
         datat = sol.ys[i]
         ax.set_xlim([-10, 10])
         ax.set_ylim([-4, 4])
@@ -99,7 +101,7 @@ if __name__ == "__main__":
     ani.save("plots/animation.gif", dpi=300, writer=PillowWriter(fps=60))
 
     ### Set up density calculations
-    resolution = 0.125
+    resolution = 0.5
     width_grid = jnp.arange(-width, width, resolution) + resolution / 2
     height_grid = jnp.arange(-height, height, resolution) + resolution / 2
     xgrid, ygrid = jnp.meshgrid(width_grid, height_grid)
