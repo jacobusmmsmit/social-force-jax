@@ -4,9 +4,10 @@ from jax import vmap
 import matplotlib.pyplot as plt
 from functools import partial
 
+
 @partial(jax.jit, static_argnums=(0,))
 def stationary_kernel(f, x, y):
-    return f(x - y)
+    return jnp.prod(f(x - y))
 
 
 @jax.jit
@@ -23,6 +24,11 @@ def _tricube(x):
 def tricube(x):
     conditions = [jnp.abs(x) > 1, jnp.abs(x) <= 1]
     return jnp.piecewise(x, conditions, [jnp.zeros_like, _tricube])
+
+
+@jax.jit
+def tricube_2d(x, y):
+    return tricube(x) * tricube(y)
 
 
 @partial(jax.jit, static_argnums=(0,))
