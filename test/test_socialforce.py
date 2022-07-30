@@ -1,3 +1,6 @@
+# from jax.config import config
+
+# config.update("jax_enable_x64", True)
 import jax
 import jax.numpy as jnp
 import pytest
@@ -5,6 +8,15 @@ import pytest
 from jax import random, lax
 from jax import vmap
 from jax.config import config
+
+from diffrax import (
+    diffeqsolve,
+    Tsit5,
+    Kvaerno3,
+    ODETerm,
+    SaveAt,
+    PIDController,
+)
 
 import src.socialforce as sf
 from src import transformations
@@ -110,4 +122,55 @@ def no_nan_gradients():
     # )
 
 
+def physical_laws_obeyed():
+    N = 40
+    width = 5.0
+    height = 3.0
+    x0 = sf.two_groups_datum(key, N, width, 0.66 * height)
+    xs = x0[:, 0:2]
+    pedestrian_strength = 2.1
+    pedestrian_shape = 1.0
+    wall_strength = 10.0
+    wall_shape = 2.5
+    relaxation_time = 0.5
+    desired_velocities = x0[:, 2:4]
+    top_wall = jnp.array([-100, height, 100, height])
+    bottom_wall = jnp.array([-100, -height, 100, -height])
+    walls = jnp.row_stack((top_wall, bottom_wall))
+
+    args = (
+        pedestrian_strength,
+        pedestrian_shape,
+        wall_strength,
+        wall_shape,
+        relaxation_time,
+        desired_velocities,
+        walls,
+    )
+
+    ### Set-up and solve model
+    term = ODETerm(sf.step)
+    solver = Kvaerno3()
+    tspan = (0.0, 50.0)
+    nsaves = 1200
+    saveat = SaveAt(ts=jnp.linspace(tspan[0], tspan[1], nsaves))
+    stepsize_controller = PIDController(rtol=1e-8, atol=1e-8)
+
+    sol = diffeqsolve(
+        term,
+        solver,
+        t0=tspan[0],
+        t1=tspan[1],
+        dt0=0.1,
+        y0=x0,
+        args=args,
+        saveat=saveat,
+        stepsize_controller=stepsize_controller,
+    )
+
+    assert jnp.all(sol.ys[:, :, 1] > -height)
+    assert jnp.all(sol.ys[:, :, 1] < height)
+
+
 no_nan_gradients()
+physical_laws_obeyed()
