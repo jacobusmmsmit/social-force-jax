@@ -19,25 +19,29 @@ with warnings.catch_warnings():
         PIDController,
     )
 
-from jax import random, lax
+import jax.random as jrd
+from jax import lax
 from jax import vmap
 from jax.config import config
 from matplotlib.animation import FuncAnimation, PillowWriter
 from numpyro.infer import MCMC, NUTS
 
-import src.socialforce as sf
-from src import transformations
+import pedestrianinference as ped
+from pedestrianinference.models import initialisation
+from pedestrianinference.models import socialforce as sf
+from pedestrianinference.density import kernels
+from pedestrianinference.density import density
 
 config.update("jax_debug_nans", True)
 
-key = random.PRNGKey(42)
+key = jrd.PRNGKey(42)
 
 if __name__ == "__main__":
     ### Initialise parameters of simulation
     N = 20
     width = 5
     height = 3
-    x0 = sf.two_groups_datum(key, N, width, 0.66 * height)
+    x0 = initialisation.two_groups_datum(key, N, width, 0.66 * height)
 
     # Model parameters
     pedestrian_strength = 2.1
@@ -121,9 +125,9 @@ if __name__ == "__main__":
     ) // 2
     box_grid_end = box_grid_start + box_grid_size[1]
 
-    kernel = lambda x: transformations.tricube(x, shape=1.5)
+    kernel = lambda x: kernels.tricube(x, shape=1.5)
 
-    true_data = vmap(transformations.grid_density, (None, None, 0))(
+    true_data = vmap(density.grid, (None, None, 0))(
         kernel, gridpositions, sol.ys[:, :, 0:2]
     )
 
@@ -131,8 +135,8 @@ if __name__ == "__main__":
         return vmap(jnp.logical_and)(tspan[0] <= sol.ts, sol.ts <= tspan[1])
 
     def sol_to_box_density(sol, ts):
-        density_data = vmap(transformations.grid_density, (None, None, 0))(
-            transformations.tricube, gridpositions, sol.ys[ts, :, 0:2]
+        density_data = vmap(density.grid, (None, None, 0))(
+            kernel, gridpositions, sol.ys[ts, :, 0:2]
         )
         box_density = vmap(lambda x: x[:, box_grid_start:box_grid_end])(density_data)
         return jnp.mean(box_density)

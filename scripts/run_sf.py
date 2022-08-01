@@ -10,7 +10,7 @@ import seaborn as sns
 import warnings
 
 with warnings.catch_warnings():
-    warnings.filterwarnings("ignore",category=DeprecationWarning)
+    warnings.filterwarnings("ignore", category=DeprecationWarning)
     from diffrax import (
         diffeqsolve,
         Tsit5,
@@ -19,25 +19,30 @@ with warnings.catch_warnings():
         PIDController,
     )
 
-from jax import random, lax
+import jax.random as jrd
+from jax import lax
+
 from jax import vmap
 from jax.config import config
 from matplotlib.animation import FuncAnimation, PillowWriter
 from numpyro.infer import MCMC, NUTS
 
-import src.socialforce as sf
-from src import transformations
+import pedestrianinference as ped
+from pedestrianinference.models import initialisation
+from pedestrianinference.models import socialforce as sf
+from pedestrianinference.density import kernels
+from pedestrianinference.density import density
 
 config.update("jax_debug_nans", True)
 
-key = random.PRNGKey(42)
+key = jrd.PRNGKey(42)
 
 if __name__ == "__main__":
     ### Initialise parameters of simulation
     N = 20
     width = 5
     height = 3
-    x0 = sf.two_groups_datum(key, N, width, 0.66 * height)
+    x0 = initialisation.two_groups_datum(key, N, width, 0.66 * height)
 
     # Model parameters
     pedestrian_strength = 2.1
@@ -50,8 +55,8 @@ if __name__ == "__main__":
     # Walls
     top_wall = jnp.array([-100, height, 100, height])
     bottom_wall = jnp.array([-100, -height, 100, -height])
-    middle_top_wall = jnp.array([0, height, 0, (3/4)*height])
-    middle_bottom_wall = jnp.array([0, -height, 0, -(3/4)*height])
+    middle_top_wall = jnp.array([0, height, 0, (3 / 4) * height])
+    middle_bottom_wall = jnp.array([0, -height, 0, -(3 / 4) * height])
     walls = jnp.row_stack((top_wall, bottom_wall, middle_top_wall, middle_bottom_wall))
 
     args = (
@@ -109,23 +114,23 @@ if __name__ == "__main__":
         len(height_grid), len(width_grid), 2
     )
 
-    kernel = lambda x: transformations.tricube(x, shape=1.5)
+    kernel = lambda x: kernels.tricube(x, shape=1.0)
 
     # Plot a heatmap of the initial conditions (broken, need to transpose)
     # xs = sol.ys[0][:, 0:2]
-    # a = transformations.grid_density(transformations.tricube, gridpositions, xs)
+    # a = density.grid(kernel, gridpositions, xs)
     # plt.clf()
     # plt.imshow(jnp.transpose(a), cmap="hot", interpolation="nearest")
 
-    true_data = vmap(transformations.grid_density, (None, None, 0))(
+    true_data = vmap(density.grid, (None, None, 0))(
         kernel, gridpositions, sol.ys[:, :, 0:2]
     )
 
     ### Save solution to csv
-    sol_numpy = np.asarray(true_data)
-    print(f"True dimensions: {np.shape(sol_numpy)}")
-    reshaped_density = sol_numpy.reshape(sol_numpy.shape[0], -1)
-    np.savetxt(f"data/reshaped_density.csv", reshaped_density, delimiter=",")
+    # sol_numpy = np.asarray(true_data)
+    # print(f"True dimensions: {np.shape(sol_numpy)}")
+    # reshaped_density = sol_numpy.reshape(sol_numpy.shape[0], -1)
+    # np.savetxt(f"data/reshaped_density.csv", reshaped_density, delimiter=",")
 
     @jax.jit
     def predict(pedestrian_strength, pedestrian_shape, wall_strength, wall_shape):
@@ -149,7 +154,7 @@ if __name__ == "__main__":
             saveat=saveat,
             stepsize_controller=stepsize_controller,
         )
-        return vmap(transformations.grid_density, (None, None, 0))(
+        return vmap(density.grid, (None, None, 0))(
             kernel, gridpositions, sol.ys[:, :, 0:2]
         )
 
@@ -163,24 +168,27 @@ if __name__ == "__main__":
         return loss
 
     ### Point-estimate Parameter Calibration with ADAM
-    learning_rate = 0.3
+    learning_rate = 0.1
     optimizer = optax.adam(learning_rate)
-    params = jnp.array(
-        [1.0, 0.5, 0.5, 0.5]
-    )  # Initialise parameters at arbitrary values
+    params = jrd.uniform(key, (4,), minval=0.0, maxval=10.0)  # Initialise parameters at arbitrary values
     opt_state = optimizer.init(params)
+    initial_loss = compute_loss(params, true_data)
+    print(f"Initial loss: {initial_loss}")
 
     # Train:
-    for _ in range(1000):
+    for _ in range(2000):
         grads = jax.grad(compute_loss)(params, true_data)
         updates, opt_state = optimizer.update(grads, opt_state)
         params = optax.apply_updates(params, updates)
         # Printing the loss is very inefficient, speed up the training by removing this line
         # print(f"Parameters: {params}, Loss: {compute_loss(params, true_data)}")
-        print(f"Parameters: {params}, Grads: {grads}")
+        # print(f"Parameters: {params}, Grads: {grads}")
+        print(f"Parameters: {params}")
 
     # Final parameters:
     print(f"Final parameters, {params}")
+    print(f"Final loss: {compute_loss(params, true_data)}")
+    print(f"Loss difference: {compute_loss(params, true_data) - initial_loss}")
 
     ### Bayesian Parameter Calibration with NUTS
     uFactor = 2.0  # Increase to make inference have a wider space to explore
@@ -212,13 +220,12 @@ if __name__ == "__main__":
     ### NUTS ###
     # Set random seed for reproducibility.
     nsamples = 200
-    rng_key = random.PRNGKey(0)
     nuts = MCMC(
         NUTS(fitSF, target_accept_prob=0.65, max_tree_depth=10),
         num_samples=nsamples,
         num_warmup=50,
     )
-    nuts.run(rng_key, true_data)  # run sampler.
+    # nuts.run(key, true_data)  # run sampler.
     nuts_samples = nuts.get_samples()  ## collect samplers.
 
     def plot_chain(samples):

@@ -1,7 +1,4 @@
-from .transformations import total_density, grid_density
-
 from .socialforce import (
-    two_groups_datum,
     relax_to_desired,
     vrelax_to_desired,
     V,
@@ -15,5 +12,3 @@ from .socialforce import (
     pairwise_total_wall_repulsion,
     step,
 )
-
-__version__ = "0.2.0"
